@@ -11,3 +11,5 @@ Jordan-Wigner_Transform_in_Python.ipynb: The Jordan-Wigner transform in Python, 
 Quantum_Bound_on_CHSH.ipynb: Quantum Bound on the CHSH Inequality Using Semidefinite Relaxations. View it [here](http://nbviewer.ipython.org/github/peterwittek/ipython-notebooks/blob/master/Quantum_Bound_on_CHSH.ipynb).
 
 second-order-relaxation.ipynb: Second-order semidefinite relaxation of a commutative polynomial optimization problem. View it [here](http://nbviewer.ipython.org/github/peterwittek/ipython-notebooks/blob/master/second-order-relaxation.ipynb).
+
+spyder-mathematica-alternative.ipynb: Spyder: Getting closer to a viable Mathematica alternative. View it [here](http://nbviewer.ipython.org/github/peterwittek/ipython-notebooks/blob/master/spyder-mathematica-alternative.ipynb).
