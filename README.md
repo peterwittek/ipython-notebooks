@@ -9,3 +9,5 @@ generating-noncommutative-monomials.ipynb: Generating noncommutative monomials w
 Jordan-Wigner_Transform_in_Python.ipynb: The Jordan-Wigner transform in Python, applied to calculate the eigenvalues of a Hamiltonian. View it [here](http://nbviewer.ipython.org/github/peterwittek/ipython-notebooks/blob/master/Jordan-Wigner_Transform_in_Python.ipynb).
 
 Quantum_Bound_on_CHSH.ipynb: Quantum Bound on the CHSH Inequality Using Semidefinite Relaxations. View it [here](http://nbviewer.ipython.org/github/peterwittek/ipython-notebooks/blob/master/Quantum_Bound_on_CHSH.ipynb).
+
+second-order-relaxation.ipynb: Second-order semidefinite relaxation of a commutative polynomial optimization problem. View it [here](http://nbviewer.ipython.org/github/peterwittek/ipython-notebooks/blob/master/second-order-relaxation.ipynb).
