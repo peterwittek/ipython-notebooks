@@ -402,7 +402,7 @@ def decomposePovmToProjective(povm):
     return coeff, proj_meas
 
 
-def enumerate_vertices(inequalities, method="plrs", verbose=0):
+def enumerate_vertices(inequalities, method="plrs", verbose=0, rational=False):
     """This is the main function for enumerating vertices given a set of
     inequalities. It is a wrapper to be able to call different enumeration
     algorithms via the same interface.
@@ -421,11 +421,12 @@ def enumerate_vertices(inequalities, method="plrs", verbose=0):
     :returns: :class:`numpy.array`.
     """
     if method == "lrs":
-        return _run_plrs(inequalities, solverexecutable="lrs", verbose=verbose)
+        return _run_plrs(inequalities, solverexecutable="lrs", verbose=verbose,
+                         rational=rational)
     elif method == "plrs":
-        return _run_plrs(inequalities, verbose=verbose)
+        return _run_plrs(inequalities, verbose=verbose, rational=rational)
     elif method == "cdd":
-        return _run_cdd(inequalities, verbose=verbose)
+        return _run_cdd(inequalities, verbose=verbose, rational=rational)
     else:
         raise Exception("Unknown method")
 
@@ -518,7 +519,7 @@ def n_choose_r(n, r):
     return f(n) // f(r) // f(n-r)
 
 
-def _read_ext(filename):
+def _read_ext(filename, rational=False):
     """Helper function for using the lrs/plrs algorithms. It is only called by
     `run_plrs`.
     """
@@ -533,11 +534,15 @@ def _read_ext(filename):
         line = f.readline()
         if line.find("end") > -1:
             break
-        point = np.zeros(dim)
+        point = []
         i = 0
         for number in line.split(" "):
             if number != "" and number != "\n":
-                point[i] = float(Fraction(number))
+                if rational:
+                    point.append(Fraction(number))
+
+                else:
+                    point.append(float(Fraction(number)))
                 i += 1
         result.append(point)
     return np.array(result)
@@ -566,7 +571,8 @@ def _run_cdd(inequalities, verbose=0, rational=False):
 
 
 def _run_plrs(inequalities=None, file_in=None, file_out=None,
-              solverexecutable="plrs", threads=None, verbose=0):
+              solverexecutable="plrs", threads=None, verbose=0,
+              rational=False):
     """Helper function called by `enumerate_vertices` to run the lrs/plrs
     algorithm to enumerate vertices.
     """
@@ -596,10 +602,10 @@ def _run_plrs(inequalities=None, file_in=None, file_out=None,
     if file_in is None and verbose < 2:
         os.remove(file_in_)
     if file_out is None and verbose < 2:
-        result = _read_ext(file_out_)
+        result = _read_ext(file_out_, rational)
         os.remove(file_out_)
     else:
-        result = _read_ext(file_out_)
+        result = _read_ext(file_out_, rational)
     return result
 
 
