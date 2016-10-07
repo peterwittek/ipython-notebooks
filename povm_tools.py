@@ -543,12 +543,15 @@ def _read_ext(filename):
     return np.array(result)
 
 
-def _run_cdd(inequalities, verbose=0):
+def _run_cdd(inequalities, verbose=0, rational=False):
     """Helper function called by `enumerate_vertices` to run the CDD algorithm
     to enumerate vertices.
     """
     import cdd
-    mat = cdd.Matrix(inequalities)
+    if rational:
+        mat = cdd.Matrix(inequalities, number_type='fraction')
+    else:
+        mat = cdd.Matrix(inequalities)
     mat.rep_type = cdd.RepType.INEQUALITY
     poly = cdd.Polyhedron(mat)
     ext = poly.get_generators()
