@@ -40,14 +40,14 @@ def basis(k, dim=3):
     return qutrit
 
 
-def check_ranks(M, tolerance=0.01):
+def check_ranks(M, tolerance=1e-10):
     return [numpy.linalg.matrix_rank(Mi, tol=tolerance) for Mi in M]
 
 
 def _check_qubit_sdp(K, solver=None):
-    """Verifies whether a qubit POVM is simulable and checks for the visibility
-    that would make it simulable. It returns a visibility value, which is one
-    if the POVM is simulable.
+    """Verifies whether a qubit POVM is projective-simulable and checks for the
+    visibility that would make it simulable. It returns a visibility value,
+    which is one if the POVM is simulable.
 
     :param K: The POVM.
     :type K: list of :class:`numpy.array`.
@@ -100,9 +100,61 @@ def _check_qubit_sdp(K, solver=None):
     return obj
 
 
-def _check_qutrit_sdp(K, solver=None):
-    """Verifies whether a qutrit POVM is simulable and checks for the
-    visibility that would make it simulable. It returns a visibility value,
+def _check_qutrit_3out_sdp(K, solver=None):
+    """Verifies whether a qutrit POVM is 3-outcome-simulable and checks for
+    the visibility that would make it simulable. It returns a visibility value,
+    which is one if the POVM is simulable.
+
+    :param K: The POVM.
+    :type K: list of :class:`numpy.array`.
+    :param solver: The solver to be called, either `None`, "sdpa", "mosek",
+                   or "cvxopt". The default is `None`, which triggers
+                   autodetect.
+    :type solver: str.
+
+    :returns: float
+    """
+    # Exact same logic as before, except that the POVM might have a different
+    # of effects, and we have a lot more ways of simulating a POVM.
+    n_outcomes = len(K)
+    problem = picos.Problem(verbose=0)
+    n_three_sets = n_choose_r(n_outcomes, 3)
+    P = [[problem.add_variable("P^%s_%s" % (i, j), (3, 3), vtype='hermitian')
+          for j in range(3)] for i in range(n_three_sets)]
+    p = problem.add_variable("p", n_three_sets, lower=[0.0] * n_three_sets)
+    problem.add_list_of_constraints([sum(P[i][j] for j in range(3)) ==
+                                     p[i]*np.eye(3)
+                                     for i in range(n_three_sets)],
+                                    'i', '0...%s' % (n_three_sets-1))
+    problem.add_list_of_constraints([P[i][j] >> 0 for i in range(n_three_sets)
+                                     for j in range(3)],
+                                    'ij', '0...%s, 0...%s' %
+                                    (n_three_sets-1, 2))
+    problem.add_constraint(sum(p[i] for i in range(n_three_sets)) == 1)
+    t = problem.add_variable('t', 1, lower=0.0)
+    problem.set_objective('max', t)
+    problem.add_constraint(t <= 1.0)
+    problem.add_constraint(t >= 0.0)
+    noise = [np.trace(Ki).real*np.eye(3)/3 for Ki in K]
+    for k in range(n_outcomes):
+        sP = sum(P[i][c.index(k)]
+                 for i, c in
+                 enumerate(itertools.combinations(range(n_outcomes), 3))
+                 if c.count(k) > 0)
+        problem.add_constraint(sP == t*K[k] + (1-t)*noise[k])
+    problem.solve(solver=solver)
+    if not 'optimal' in problem.status:
+        raise Exception(problem.status)
+    if problem.status.count("optimal") > 0:
+        obj = problem.obj_value()
+    else:
+        obj = None
+    return obj
+
+
+def _check_qutrit_proj_sdp(K, solver=None):
+    """Verifies whether a qutrit POVM is projective-simulable and checks for
+    the visibility that would make it simulable. It returns a visibility value,
     which is one if the POVM is simulable.
 
     :param K: The POVM.
@@ -191,32 +243,27 @@ def create_qubit_povm_from_vector(v):
     return K
 
 
-def create_qutrit_povm_from_vector(v):
-    """Given a parametric description of a qutrit measurement, it returns a
-    list of the effects. It mirrors the parametrization given in
-    `get_qutrit_povm_constraints`
+def create_covariant_povm_from_vector(v):
+    """Given a 8-dimensional real vector describing a covariant qutrit
+    measurement, it returns the list of effects.
 
     :returns: list of :class:`numpy.array`
     """
+    w = np.cos(2*np.pi/3) + 1j*np.sin(2*np.pi/3)
+    x = np.matrix([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+    D = [[], [], []]
+    for j in range(3):
+        for k in range(3):
+            D[j].append(np.matrix((w**(j*k/2))*sum(
+            w**(j*m)*x[:, np.mod(k +m, 3)]*dag(x[:, m]) for m in range(3))))
+    eff = np.matrix([[v[0], v[1] +v[2]*1j, v[3] +v[4]*1j],
+                     [v[1] -v[2]*1j, v[5], v[6] +v[7]*1j],
+                     [v[3] -v[4]*1j, v[6] -v[7]*1j, 1/3 -v[0] -v[5]]])
     M = []
-    v1 = np.array(v)
-    M.append(np.diag(v1[:3]))
-    b = v1[3:10]
-    M.append(np.array([[1.0*b[0], b[1], b[2]],
-                       [b[1], 1.0*b[3], b[4]+1j*b[5]],
-                       [b[2], b[4]-1j*b[5], 1.0*b[6]]]))
-    v1 = v1[10:]
-    n_outcomes = len(v1)//9 + 3
-    v1.shape = (n_outcomes-3, 9)
-    M_last = np.eye(3, dtype=complex) - M[-1] - M[-2]
-    for a in v1:
-        M.append(np.array([[1.0*a[0], a[1]+1j*a[2], a[3]+1j*a[4]],
-                           [a[1]-1j*a[2], 1.0*a[5], a[6]+1j*a[7]],
-                           [a[3]-1j*a[4], a[6]-1j*a[7], 1.0*a[8]]]))
-        M_last -= M[-1]
-    M.append(M_last)
+    for j in range(3):
+        for k in range(3):
+            M.append(D[j][k]*eff*dag(D[j][k]))
     return M
-
 
 def dag(v):
     """Return v^\dagger
@@ -227,21 +274,31 @@ def dag(v):
 
 
 def _decompose333To233(M):
+    """ The first step in the decomposition of trace-one qutrit POVMs into
+    projective ones. Since the output of each step is the input of the next
+    one, we decrease the precision of the SDPs in each step to avoid error
+    propagation.
+    
+    """
     _, B = numpy.linalg.eigh(M[0])
-    P = np.array([B[:, i:i+1]*dag(B[:, i:i+1]) for i in range(len(M))])
+    P = np.array([B[:, i:i +1]*dag(B[:, i:i +1]) for i in range(len(M))])
     problem = picos.Problem(verbose=0)
     t = problem.add_variable('t', 1, lower=0.0)
     problem.set_objective('max', t)
     problem.add_list_of_constraints([-t*P[i] + M[i] >> 0
                                      for i in range(len(M))])
-    problem.solve()
+    problem.set_option('mosek_params', solverparameters(1e-10))
+    problem.solve(solver=solver)
+    if not 'optimal' in problem.status and not 'feasible' in problem.status:
+        raise Exception(problem.status)
     t1 = problem.obj_value()
     N = np.array([(M[i] - t1*P[i])/(1-t1) for i in range(len(M))])
+    print([numpy.linalg.eigvalsh(M[i] - t1*P[i]) for i in range(len(M))])
     return P, N, t1
 
 
 def _decompose233To223(M):
-    l = check_ranks(M)
+    l = check_ranks(M, 1e-09)
     if l[0] == 2:
         k = 0
     elif l[1] == 2:
@@ -249,7 +306,7 @@ def _decompose233To223(M):
     else:
         k = 2
     _, B = numpy.linalg.eigh(M[k])
-    PP = np.array([B[:, i:i+1]*dag(B[:, i:i+1]) for i in range(len(M))])
+    PP = np.array([B[:, i:i +1]*dag(B[:, i:i +1]) for i in range(len(M))])
     P = []
     if k == 0:
         P.append(PP[2])
@@ -268,137 +325,183 @@ def _decompose233To223(M):
     problem.set_objective('max', t)
     problem.add_list_of_constraints([-t*P[i] + M[i] >> 0
                                      for i in range(len(M))])
-    problem.solve()
+    problem.set_option('mosek_params', solverparameters(1e-08))
+    problem.solve(solver=solver)
+    if not 'optimal' in problem.status:
+        raise Exception(problem.status)
     t1 = problem.obj_value()
     N = np.array([(M[i] - t1*P[i])/(1-t1) for i in range(len(M))])
+    print([numpy.linalg.eigvalsh(M[i] - t1*P[i]) for i in range(len(M))])
+    return P, N, t1
+
+
+def _decompose223To222(M):
+    # Findind the rank-2 effects M[k1], M[k2]
+    r = check_ranks(M, 1e-07)
+    if r[0] == 3:
+        k0 = 0
+        k1 = 1
+        k2 = 2
+    elif r[1] == 3:
+        k0 = 1
+        k1 = 0
+        k2 = 2
+    elif r[2] == 3:
+        k0 = 2
+        k1 = 0
+        k2 = 1
+    else:
+        raise Exception('The POVM is not (2, 2, 3)-type')
+    # Finding the eigenvectors associated to the non-null eigenvalues
+    A1, B1 = numpy.linalg.eigh(M[k1])
+    v1 = B1[:, 1:2]
+    v2 = B1[:, 2:3]
+    A2, B2 = numpy.linalg.eigh(M[k2])
+    u1 = B2[:, 1:2]
+    u2 = B2[:, 2:3]
+    # Finding the intersection of the supports of M[k1] and M[k2]
+    n1 = dag(numpy.cross(v1, v2, axisa=0, axisb=0))
+    n2 = dag(numpy.cross(u1, u2, axisa=0, axisb=0))
+    psi1 = dag(numpy.cross(n1, n2, axisa=0, axisb=0))
+    # Finding an orthogonal vector to psi1 in the support of M[k2]
+    psi2 = dag(numpy.cross(psi1, n2, axisa=0, axisb=0))
+    # Finding the projector that completes the POVM
+    psi0 = dag(numpy.cross(psi1, psi2, axisa=0, axisb=0))
+    psi0 = numpy.matrix(psi0/numpy.linalg.norm(psi0))
+    psi1 = numpy.matrix(psi1/numpy.linalg.norm(psi1))
+    psi2 = numpy.matrix(psi2/numpy.linalg.norm(psi2))
+    Psi0 = psi0*dag(psi0)
+    Psi1 = psi1*dag(psi1)
+    Psi2 = psi2*dag(psi2)
+    P = numpy.zeros((3, 3, 3), dtype=complex)
+    P[k0] = Psi0
+    P[k1] = Psi1
+    P[k2] = Psi2
+    # Finding the decomposition
+    problem = picos.Problem(verbose=0)
+    t = problem.add_variable('t', 1)
+    problem.set_objective('max', t)
+    problem.add_constraint(t >= 0)
+    problem.add_list_of_constraints([-t*P[i] + M[i] >> 0
+                                     for i in range(len(M))])
+    problem.set_option('mosek_params', solverparameters(1e-06))
+    problem.solve(solver=solver)
+    if not 'optimal' in problem.status:
+        raise Exception(problem.status)
+    t1 = problem.obj_value()
+    N = numpy.array([(M[i] - t1*P[i])/(1 - t1) for i in range(len(M))])
+    print([numpy.linalg.eigvalsh(M[i] - t1*P[i]) for i in range(len(M))])
     return P, N, t1
 
 
 def _decompose222To122(M):
-    _, B = numpy.linalg.eigh(M)
-    X = []
-    for j in range(len(M)):
-        X.append([B[j, :, 2:3]*dag(B[j, :, 1:2]) +
-                  B[j, :, 1:2]*dag(B[j, :, 2:3]),
-                  1j*B[j, :, 2:3]*dag(B[j, :, 1:2]) -
-                  1j*B[j, :, 1:2]*dag(B[j, :, 2:3]),
-                  B[j, :, 1:2]*dag(B[j, :, 1:2]) -
-                  B[j, :, 2:3]*dag(B[j, :, 2:3])])
-    v = np.array([np.ravel(Xii) for Xi in X for Xii in Xi]).T
-    if numpy.linalg.matrix_rank(v[:2]) < 2:
-        w1, w2 = 0, 1
-    elif numpy.linalg.matrix_rank(v[:3]) < 3:
-        w1, w2 = 0, 2
-    elif numpy.linalg.matrix_rank(v[:4]) < 4:
-        w1, w2 = 1, 0
-    elif numpy.linalg.matrix_rank(v[:5]) < 5:
-        w1, w2 = 1, 1
-    elif numpy.linalg.matrix_rank(v[:6]) < 6:
-        w1, w2 = 1, 2
-    elif numpy.linalg.matrix_rank(v[:7]) < 7:
-        w1, w2 = 2, 0
-    elif numpy.linalg.matrix_rank(v[:8]) < 8:
-        w1, w2 = 2, 1
-    elif numpy.linalg.matrix_rank(v[:9]) < 9:
-        w1, w2 = 2, 2
-    Y = [[np.zeros((3, 3), dtype=complex) for _ in range(3)] for _ in range(3)]
-    for j in range(w1):
-        for k in range(3):
-            Y[j][k] = X[j][k]
-    for j in range(w1+1, 3):
-        for k in range(3):
-            Y[j][k] = X[j][k]
-    for k in range(w2):
-        Y[w1][k] = X[w1][k]
-    for k in range(w2+1, 3):
-        Y[w1][k] = X[w1][k]
-    Y = [[cvxopt.matrix(Yii) for Yii in Yi] for Yi in Y]
+    """Virtually the last step of the decomposition, since POVMs of type
+    (1, 2, 2) are equivalent to a 2-outcome qubit POVM, and therefore
+    projective-simulable. Also, in practice we see that the outputs are
+    tipically projective POVMs.
+        
+    """
+        
+    # Finding the eigenvectors associated to the non-null eigenvalues
+    A0, B0 = numpy.linalg.eigh(M[0])
+    v1 = B0[:, 1:2]
+    v2 = B0[:, 2:3]
+    A1, B1 = numpy.linalg.eigh(M[1])
+    u1 = B1[:, 1:2]
+    u2 = B1[:, 2:3]
+    A2, B2 = numpy.linalg.eigh(M[2])
+    w1 = B2[:, 1:2]
+    w2 = B2[:, 2:3]
+    # Finding the intersection of the supports
+    n0 = dag(numpy.cross(v1, v2, axisa=0, axisb=0))
+    n1 = dag(numpy.cross(u1, u2, axisa=0, axisb=0))
+    n2 = dag(numpy.cross(w1, w2, axisa=0, axisb=0))
+    psi01 = dag(numpy.cross(n0, n1, axisa=0, axisb=0))
+    psi02 = dag(numpy.cross(n0, n2, axisa=0, axisb=0))
+    psi12 = dag(numpy.cross(n1, n2, axisa=0, axisb=0))
+    # Constructing the perturbation
+    psi01 = numpy.matrix(psi01/numpy.linalg.norm(psi01))
+    psi02 = numpy.matrix(psi02/numpy.linalg.norm(psi02))
+    psi12 = numpy.matrix(psi12/numpy.linalg.norm(psi12))
+    Psi01 = psi01*dag(psi01)
+    Psi02 = psi02*dag(psi02)
+    Psi12 = psi12*dag(psi12)
+    X = [Psi01 - Psi02, Psi12 - Psi01, Psi02 - Psi12]
+    # Finding the decomposition
+    cX = [cvxopt.matrix(X[xi]) for xi in range(3)]
     problem = picos.Problem(verbose=0)
-    q = problem.add_variable('q', 9)
-    expr = Y[0][0] * q[0] + Y[0][1] * q[1] + Y[0][2] * q[2] + \
-        Y[1][0] * q[3] + Y[1][1] * q[4] + Y[1][2] * q[5] + \
-        Y[2][0] * q[6] + Y[2][1] * q[7] + Y[2][2] * q[8]
-    problem.add_constraint(expr == cvxopt.matrix(X[w1][w2]))
-    problem.solve()
-    w = q.value
-    w[w1*3+w2] = -1
-    delta = [w[0] * X[0][0] + w[1] * X[0][1] + w[2] * X[0][2],
-             w[3] * X[1][0] + w[4] * X[1][1] + w[5] * X[1][2],
-             w[6] * X[2][0] + w[7] * X[2][1] + w[8] * X[2][2]]
-    cdelta = [cvxopt.matrix(delta_i) for delta_i in delta]
+    t = problem.add_variable('t', 1)
+    problem.add_constraint(t >= 0)
+    problem.set_objective('max', t)
+    problem.add_list_of_constraints([t*cX[i] + cvxopt.matrix(M[i]) >> 0
+                                     for i in range(3)])
+    problem.set_option('mosek_params', solverparameters(1e-04))
+    problem.solve(solver=solver)
+    if not 'optimal' in problem.status:
+        raise Exception(problem.status)
+    t1 = problem.obj_value()
+    M1 = numpy.array([(M[i] + t1*X[i]) for i in range(3)])
     problem = picos.Problem(verbose=0)
-    t = problem.add_variable('t', lower=0.0)
+    t = problem.add_variable('t', 1)
     problem.set_objective('max', t)
     problem.add_constraint(t >= 0)
-    problem.add_list_of_constraints([cvxopt.matrix(M[i]) + cdelta[i]*t >> 0
-                                     for i in range(3)], 'i', '0..2')
-    problem.solve()
-    t1 = t.value[0]
-    problem = picos.Problem(verbose=0)
-    t = problem.add_variable('t', lower=0.0)
-    problem.set_objective('max', t)
-    problem.add_constraint(t >= 0)
-    problem.add_list_of_constraints([cvxopt.matrix(M[i]) - cdelta[i]*t >> 0
-                                     for i in range(3)], 'i', '0..2')
-    problem.solve()
-    t2 = t.value[0]
-    M1 = [M[i] + delta[i]*t1 for i in range(3)]
-    M2 = [M[i] - delta[i]*t2 for i in range(3)]
+    problem.add_list_of_constraints([-t*cX[i] + cvxopt.matrix(M[i]) >> 0
+                                     for i in range(3)])
+    problem.set_option('mosek_params', solverparameters(1e-04))
+    problem.solve(solver=solver)
+    if not 'optimal' in problem.status:
+        raise Exception(problem.status)
+    t2 = problem.obj_value()
+    M2 = numpy.array([(M[i] - t2*X[i]) for i in range(3)])
+    print([numpy.linalg.eigvalsh(M1[i]) for i in range(len(M))])
+    print([numpy.linalg.eigvalsh(M2[i]) for i in range(len(M))])
     return M1, M2, t2/(t1 + t2), t1/(t1 + t2)
 
 
-def decomposePovmToProjective(povm):
+def decomposePovmToProjective(M):
     coeff, proj_meas = [], []
-    if sum(check_ranks(povm)[i] for i in range(3)) == 9:
-        P1, M1, l1 = _decompose333To233(povm)
+    if sum(check_ranks(M, 1e-16)[i] for i in range(3)) == 9:
+        P1, M1, l1 = _decompose333To233(M)
         coeff += [l1, 1-l1]
         proj_meas += [P1]
     else:
-        P1 = np.zeros((3, 3, 3))
-        M1 = povm
+        P1 = np.zeros((3, 3, 3), dtype=complex)
+        M1 = M
         coeff += [0, 1]
         proj_meas += [P1]
-    # povm = coeff[0]*proj_meas[0] + coeff[1]*M1
-    if sum(check_ranks(M1)[i] for i in range(3)) == 8:
+    # M = coeff[0]*proj_meas[0] + coeff[1]*M1
+    if sum(check_ranks(M1, 1e-09)[i] for i in range(3)) == 8:
         P2, M2, l2 = _decompose233To223(M1)
         coeff += [l2, 1-l2]
         proj_meas += [P2]
     else:
-        P2 = np.zeros((3, 3, 3))
+        P2 = np.zeros((3, 3, 3), dtype=complex)
         M2 = M1
         coeff += [0, 1]
         proj_meas += [P2]
     # M1 = coeff[2]*proj_meas[1] + coeff[3]*M2
-    if max(check_ranks(M2)) > 1:
-        M3, M4, l3, l4 = _decompose222To122(M2)
-        coeff += [l3, l4]
+    if sum(check_ranks(M2, 1e-07)[i] for i in range(3)) == 7:
+        P3, M3, l3 = _decompose223To222(M2)
+        coeff += [l3, 1-l3]
+        proj_meas += [P3]
     else:
-        M3, M4 = np.zeros((3, 3, 3)), M2
-        l3, l4 = 0, 1
-        coeff += [l3, l4]
-    # M2 = coeff[4]*M3 + coeff[5]*M4
-    if max(check_ranks(M3)) > 1:
-        M5, M6, l5, l6 = _decompose222To122(M3)
-        coeff += [l5, l6]
-        proj_meas += [M5, M6]
+        P3 = np.zeros((3, 3, 3), dtype=complex)
+        M3 = M2
+        l3 = 0
+        coeff += [l3, 1-l3]
+        proj_meas += [P3]
+    # M2 = coeff[4]*proj_meas[2] + coeff[5]*M3
+    if max(check_ranks(M3, 1e-06)) > 1:
+        M4, M5, l4, l5 = _decompose222To122(M3)
+        coeff += [l4, l5]
+        proj_meas += [M4, M5]
     else:
-        M5, M6 = np.zeros((3, 3, 3)), M3
-        l5, l6 = 0, 1
-        coeff += [l5, l6]
-        proj_meas += [M5, M6]
-    # M3 = coeff[6]*proj_meas[2] + coeff[7]*proj_meas[3]
-    if max(check_ranks(M4)) > 1:
-        M7, M8, l7, l8 = _decompose222To122(M4)
-        coeff += [l7, l8]
-        proj_meas += [M7, M8]
-    else:
-        M7, M8 = np.zeros((3, 3, 3)), M4
-        l7, l8 = 0, 1
-        coeff += [l7, l8]
-        proj_meas += [M7, M8]
-    # M4 = coeff[8]*proj_meas[4] + coeff[9]*proj_meas[5]
-    coeff = np.array(coeff)
-    proj_meas = np.array(proj_meas)
+        M4 = np.zeros((3, 3, 3), dtype=complex)
+        M5 = M3
+        l4, l5 = 0, 1
+        coeff += [l4, l5]
+        proj_meas += [M4, M5]
+    # M3 = coeff[6]*proj_meas[3] + coeff[7]*proj_meas[4]
     return coeff, proj_meas
 
 
@@ -509,7 +612,7 @@ def get_visibility(K, solver=None):
     if K[0].shape == (2, 2):
         return _check_qubit_sdp(K, solver)
     elif K[0].shape == (3, 3):
-        return _check_qutrit_sdp(K, solver)
+        return _check_qutrit_proj_sdp(K, solver)
     else:
         raise Exception("Not implemented for %d dimensions" % K[0].shape[0])
 
@@ -621,7 +724,7 @@ def _solve_sdp(args, dim, solver):
         obj = _check_qubit_sdp(K, solver)
     elif dim == 3:
         K = create_qutrit_povm_from_vector(povm_vector)
-        obj = _check_qutrit_sdp(K, solver)
+        obj = _check_qutrit_proj_sdp(K, solver)
     if obj is not None:
         return args[0], obj
     else:
