@@ -576,7 +576,7 @@ def _run_plrs(inequalities=None, file_in=None, file_out=None,
     """Helper function called by `enumerate_vertices` to run the lrs/plrs
     algorithm to enumerate vertices.
     """
-    tempfile_ = tempfile.NamedTemporaryFile()
+    tempfile_ = tempfile.TemporaryFile()
     tmp_filename = tempfile_.name
     tempfile_.close()
 
@@ -594,11 +594,18 @@ def _run_plrs(inequalities=None, file_in=None, file_out=None,
         if threads is None:
             threads = multiprocessing.cpu_count()
         command_line += ["-mt", str(threads)]
-    if verbose == 0:
-        with open(os.devnull, "w") as fnull:
-            subprocess.call(command_line, stdout=fnull, stderr=fnull)
-    else:
-        subprocess.call(command_line)
+    try:
+        if verbose == 0:
+            with open(os.devnull, "w") as fnull:
+                subprocess.call(command_line, stdout=fnull, stderr=fnull)
+        else:
+            subprocess.call(command_line)
+    except:
+        if file_in is None and verbose < 2:
+            os.remove(file_in_)
+        if file_out is None and verbose < 2:
+            os.remove(file_out_)
+        raise Exception
     if file_in is None and verbose < 2:
         os.remove(file_in_)
     if file_out is None and verbose < 2:
