@@ -82,13 +82,13 @@ def _check_qubit_sdp(K, solver=None):
     # Techinically, it is upper bounded by 1.0, but we have to specify it
     # in a constraint. It is probably a bug in PICOS.
     problem.add_constraint(t <= 1.0)
-    problem.add_constraint(t*K[0] + (1-t)*noise[0] ==
+    problem.add_constraint(t*K[0] + (1 - t)*noise[0] ==
                            P[0][0] + P[1][0] + P[2][0])
-    problem.add_constraint(t*K[1] + (1-t)*noise[1] ==
+    problem.add_constraint(t*K[1] + (1 - t)*noise[1] ==
                            P[0][1] + P[3][0] + P[4][0])
-    problem.add_constraint(t*K[2] + (1-t)*noise[2] ==
+    problem.add_constraint(t*K[2] + (1 - t)*noise[2] ==
                            P[1][1] + P[3][1] + P[5][0])
-    problem.add_constraint(t*K[3] + (1-t)*noise[3] ==
+    problem.add_constraint(t*K[3] + (1 - t)*noise[3] ==
                            P[2][1] + P[4][1] + P[5][1])
     problem.set_objective('max', t)
 
@@ -143,7 +143,7 @@ def _check_qutrit_3out_sdp(K, solver=None):
                  if c.count(k) > 0)
         problem.add_constraint(sP == t*K[k] + (1-t)*noise[k])
     problem.solve(solver=solver)
-    if not 'optimal' in problem.status:
+    if 'optimal' not in problem.status:
         raise Exception(problem.status)
     if problem.status.count("optimal") > 0:
         obj = problem.obj_value()
@@ -216,7 +216,7 @@ def _check_qutrit_proj_sdp(K, solver=None):
                  for i, c in
                  enumerate(itertools.combinations(range(n_outcomes), 2))
                  if c.count(k) > 0)
-        problem.add_constraint(sP + sR == t*K[k] + (1-t)*noise[k])
+        problem.add_constraint(sP + sR == t*K[k] + (1 - t)*noise[k])
     problem.solve(solver=solver)
     if problem.status.count("optimal") > 0:
         obj = problem.obj_value()
@@ -239,7 +239,7 @@ def create_qubit_povm_from_vector(v):
     K += [v[1]*np.eye(2) + v[2]*Pauli[0] + v[3]*Pauli[1]]
     K += [v[4]*np.eye(2) + v[5]*Pauli[0] +
           v[6]*Pauli[1] + v[7]*Pauli[2]]
-    K += [np.eye(2)-K[0]-K[1]-K[2]]
+    K += [np.eye(2) - K[0] - K[1] - K[2]]
     return K
 
 
@@ -255,15 +255,17 @@ def create_covariant_povm_from_vector(v):
     for j in range(3):
         for k in range(3):
             D[j].append(np.matrix((w**(j*k/2))*sum(
-            w**(j*m)*x[:, np.mod(k +m, 3)]*dag(x[:, m]) for m in range(3))))
-    eff = np.matrix([[v[0], v[1] +v[2]*1j, v[3] +v[4]*1j],
-                     [v[1] -v[2]*1j, v[5], v[6] +v[7]*1j],
-                     [v[3] -v[4]*1j, v[6] -v[7]*1j, 1/3 -v[0] -v[5]]])
+                w**(j*m)*x[:, np.mod(k + m, 3)]*dag(x[:, m]) for m in
+                    range(3))))
+    eff = np.matrix([[v[0], v[1] + v[2]*1j, v[3] + v[4]*1j],
+                     [v[1] - v[2]*1j, v[5], v[6] + v[7]*1j],
+                     [v[3] - v[4]*1j, v[6] - v[7]*1j, 1/3 - v[0] - v[5]]])
     M = []
     for j in range(3):
         for k in range(3):
             M.append(D[j][k]*eff*dag(D[j][k]))
     return M
+
 
 def dag(v):
     """Return v^\dagger
@@ -278,7 +280,7 @@ def _decompose333To233(M):
     projective ones. Since the output of each step is the input of the next
     one, we decrease the precision of the SDPs in each step to avoid error
     propagation.
-    
+
     """
     _, B = numpy.linalg.eigh(M[0])
     P = np.array([B[:, i:i +1]*dag(B[:, i:i +1]) for i in range(len(M))])
@@ -288,8 +290,8 @@ def _decompose333To233(M):
     problem.add_list_of_constraints([-t*P[i] + M[i] >> 0
                                      for i in range(len(M))])
     problem.set_option('mosek_params', solverparameters(1e-10))
-    problem.solve(solver=solver)
-    if not 'optimal' in problem.status and not 'feasible' in problem.status:
+    problem.solve(solver='mosek')
+    if 'optimal' not in problem.status and 'feasible' not in problem.status:
         raise Exception(problem.status)
     t1 = problem.obj_value()
     N = np.array([(M[i] - t1*P[i])/(1-t1) for i in range(len(M))])
@@ -306,7 +308,7 @@ def _decompose233To223(M):
     else:
         k = 2
     _, B = numpy.linalg.eigh(M[k])
-    PP = np.array([B[:, i:i +1]*dag(B[:, i:i +1]) for i in range(len(M))])
+    PP = np.array([B[:, i:i + 1]*dag(B[:, i:i + 1]) for i in range(len(M))])
     P = []
     if k == 0:
         P.append(PP[2])
@@ -385,8 +387,8 @@ def _decompose223To222(M):
     problem.add_list_of_constraints([-t*P[i] + M[i] >> 0
                                      for i in range(len(M))])
     problem.set_option('mosek_params', solverparameters(1e-06))
-    problem.solve(solver=solver)
-    if not 'optimal' in problem.status:
+    problem.solve(solver='mosek')
+    if 'optimal' not in problem.status:
         raise Exception(problem.status)
     t1 = problem.obj_value()
     N = numpy.array([(M[i] - t1*P[i])/(1 - t1) for i in range(len(M))])
@@ -399,9 +401,9 @@ def _decompose222To122(M):
     (1, 2, 2) are equivalent to a 2-outcome qubit POVM, and therefore
     projective-simulable. Also, in practice we see that the outputs are
     tipically projective POVMs.
-        
+
     """
-        
+
     # Finding the eigenvectors associated to the non-null eigenvalues
     A0, B0 = numpy.linalg.eigh(M[0])
     v1 = B0[:, 1:2]
@@ -436,8 +438,8 @@ def _decompose222To122(M):
     problem.add_list_of_constraints([t*cX[i] + cvxopt.matrix(M[i]) >> 0
                                      for i in range(3)])
     problem.set_option('mosek_params', solverparameters(1e-04))
-    problem.solve(solver=solver)
-    if not 'optimal' in problem.status:
+    problem.solve(solver='mosek')
+    if 'optimal' not in problem.status:
         raise Exception(problem.status)
     t1 = problem.obj_value()
     M1 = numpy.array([(M[i] + t1*X[i]) for i in range(3)])
@@ -448,8 +450,8 @@ def _decompose222To122(M):
     problem.add_list_of_constraints([-t*cX[i] + cvxopt.matrix(M[i]) >> 0
                                      for i in range(3)])
     problem.set_option('mosek_params', solverparameters(1e-04))
-    problem.solve(solver=solver)
-    if not 'optimal' in problem.status:
+    problem.solve(solver='mosek')
+    if 'optimal' not in problem.status:
         raise Exception(problem.status)
     t2 = problem.obj_value()
     M2 = numpy.array([(M[i] - t2*X[i]) for i in range(3)])
@@ -534,7 +536,7 @@ def enumerate_vertices(inequalities, method="plrs", verbose=0, rational=False):
         raise Exception("Unknown method")
 
 
-def find_best_shrinking_factor(ext, solver=None, parallel=True):
+def find_best_shrinking_factor(ext, dim, solver=None, parallel=True):
     """Universal optimization function that iterates over a given set of
     extreme points, and returns a matching list of shrinking factors. It is
     universal because it works for both qubits and qutrits. Ideally, it runs
@@ -554,10 +556,7 @@ def find_best_shrinking_factor(ext, solver=None, parallel=True):
 
     :returns: :class:`numpy.array`.
     """
-    if len(ext[0]) == 9:
-        dim = 2
-    else:
-        dim = 3
+
     func = partial(_solve_sdp, dim=dim, solver=solver)
 
     alphas = np.ones(ext.shape[0])
@@ -632,7 +631,6 @@ def _read_ext(filename, rational=False):
     while line.find("begin") < 0:
         line = f.readline()
     line = f.readline()
-    dim = int(line.split(" ")[1])
     while True:
         line = f.readline()
         if line.find("end") > -1:
@@ -684,12 +682,12 @@ def _run_plrs(inequalities=None, file_in=None, file_out=None,
     tempfile_.close()
 
     if file_in is None:
-        file_in_ = tmp_filename + ".ine"
+        file_in_ = str(tmp_filename) + ".ine"
         _write_to_ine(file_in_, inequalities)
     else:
         file_in_ = file_in
     if file_out is None:
-        file_out_ = tmp_filename + ".plrs"
+        file_out_ = str(tmp_filename) + ".plrs"
     else:
         file_out_ = file_out
     command_line = [solverexecutable, file_in_, file_out_]
@@ -730,12 +728,24 @@ def _solve_sdp(args, dim, solver):
         K = create_qubit_povm_from_vector(povm_vector)
         obj = _check_qubit_sdp(K, solver)
     elif dim == 3:
-        K = create_qutrit_povm_from_vector(povm_vector)
+        K = create_covariant_povm_from_vector(povm_vector)
         obj = _check_qutrit_proj_sdp(K, solver)
     if obj is not None:
         return args[0], obj
     else:
         return args[0], 1.0
+
+
+def solverparameters(precision):
+    return {'intpnt_co_tol_rel_gap': precision,
+            'intpnt_co_tol_mu_red': precision,
+            'intpnt_nl_tol_rel_gap': precision,
+            'intpnt_nl_tol_mu_red': precision,
+            'intpnt_tol_rel_gap': precision,
+            'intpnt_tol_mu_red': precision,
+            'intpnt_co_tol_dfeas': precision,
+            'intpnt_co_tol_infeas': precision,
+            'intpnt_co_tol_pfeas': precision}
 
 
 def truncatedicosahedron(ratio):
