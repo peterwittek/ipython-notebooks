@@ -595,7 +595,7 @@ def get_random_qutrit():
     return qutrit/np.linalg.norm(qutrit)
 
 
-def get_visibility(K, solver=None):
+def get_visibility(K, solver=None, proj=True):
     """It returns a visibility value for a qubit or qutrit POVM, which is one
     if the POVM is simulable.
 
@@ -611,7 +611,10 @@ def get_visibility(K, solver=None):
     if K[0].shape == (2, 2):
         return _check_qubit_sdp(K, solver)
     elif K[0].shape == (3, 3):
-        return _check_qutrit_proj_sdp(K, solver)
+        if proj:
+            return _check_qutrit_proj_sdp(K, solver)
+        else:
+            return _check_qutrit_3out_sdp(K, solver)
     else:
         raise Exception("Not implemented for %d dimensions" % K[0].shape[0])
 
