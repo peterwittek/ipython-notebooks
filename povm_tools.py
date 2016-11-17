@@ -143,7 +143,7 @@ def _check_qutrit_3out_sdp(K, solver=None):
                  if c.count(k) > 0)
         problem.add_constraint(sP == t*K[k] + (1-t)*noise[k])
     problem.solve(solver=solver)
-    if not 'optimal' in problem.status:
+    if 'optimal' not in problem.status:
         raise Exception(problem.status)
     if problem.status.count("optimal") > 0:
         obj = problem.obj_value()
@@ -278,7 +278,7 @@ def _decompose333To233(M):
     projective ones. Since the output of each step is the input of the next
     one, we decrease the precision of the SDPs in each step to avoid error
     propagation.
-    
+
     """
     _, B = numpy.linalg.eigh(M[0])
     P = np.array([B[:, i:i +1]*dag(B[:, i:i +1]) for i in range(len(M))])
@@ -399,9 +399,9 @@ def _decompose222To122(M):
     (1, 2, 2) are equivalent to a 2-outcome qubit POVM, and therefore
     projective-simulable. Also, in practice we see that the outputs are
     tipically projective POVMs.
-        
+
     """
-        
+
     # Finding the eigenvectors associated to the non-null eigenvalues
     A0, B0 = numpy.linalg.eigh(M[0])
     v1 = B0[:, 1:2]
